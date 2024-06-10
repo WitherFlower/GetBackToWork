@@ -327,21 +327,16 @@ def index():
 def run_api():
     app.run(host='127.0.0.1', port=24707)
 
-def run_bot():
-    bot.run(BOT_TOKEN)  # type: ignore
-
 if __name__ == "__main__":
     apiThread = threading.Thread(target=run_api)
     apiThread.start()
     updateThread = threading.Thread(target=updateIndefinitely)
     updateThread.start()
-    botThread = threading.Thread(target=run_bot)
-    botThread.start()
+    bot.run(BOT_TOKEN)  # type: ignore
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         apiThread.join()
         updateThread.join()
-        botThread.join()
 
