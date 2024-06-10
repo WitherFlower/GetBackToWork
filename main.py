@@ -1,14 +1,16 @@
-import csv
 import os
 import random
 import re
 import sqlite3
+import time
+import threading
 from datetime import date
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from ossapi import Ossapi, UserCompact, UserLookupKey
+from flask import Flask, jsonify
 
 load_dotenv()
 
@@ -119,7 +121,7 @@ async def update(ctx: commands.Context):
     con.commit()
 
 
-def update_all_players():
+def update_all_players(con: sqlite3.Connection):
     query = f"""SELECT osu_user_id FROM registered_users"""
     cur = con.cursor()
     cur.execute(query)
@@ -150,12 +152,18 @@ def update_all_players():
         cur.execute(query)
     con.commit()
 
+def updateIndefinitely():
+    localcon = sqlite3.connect("score.db")
+    while True:
+        update_all_players(localcon)
+        time.sleep(60)
+
 @bot.command()
 async def updateAll(ctx: commands.Context):
     if (ctx.author.id != 262833401051086858):
         await ctx.send(f"Unauthorized.\nLeaked IP: {random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.")
         return
-    update_all_players()
+    update_all_players(con)
 
 @bot.command()
 async def getRegistrations(ctx: commands.Context):
@@ -286,5 +294,54 @@ async def meow(ctx: commands.Context):
 async def barack(ctx: commands.Context):
     await ctx.send("https://cdn.discordapp.com/attachments/750265305258786870/1133087258149392634/FzuaWTAaMAIjL5Z.png")
 
-if __name__ == "__main__":
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    localcon = sqlite3.connect("score.db")
+    query = f"""
+    select start_score.osu_user_id, registered_users.osu_user_name, ranked_score - starting_ranked_score as gain
+        from start_score 
+        join (select osu_user_id, max(ranked_score) as ranked_score from history group by osu_user_id) maxes
+        on start_score.osu_user_id = maxes.osu_user_id
+        join registered_users on registered_users.osu_user_id = start_score.osu_user_id
+        order by gain desc
+    """
+
+    result = list()
+
+    cur = localcon.cursor()
+    cur.execute(query)
+    result = cur.fetchall()
+
+    if len(result) == 0:
+        print("No Result")
+        return jsonify(dict())
+
+    data = dict()
+    for (osu_user_id, username, ranked_score) in result:
+        data[osu_user_id] = (username, ranked_score)
+
+    return jsonify(data)
+
+def run_api():
+    app.run(host='127.0.0.1', port=24707)
+
+def run_bot():
     bot.run(BOT_TOKEN)  # type: ignore
+
+if __name__ == "__main__":
+    apiThread = threading.Thread(target=run_api)
+    apiThread.start()
+    updateThread = threading.Thread(target=updateIndefinitely)
+    updateThread.start()
+    botThread = threading.Thread(target=run_bot)
+    botThread.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        apiThread.join()
+        updateThread.join()
+        botThread.join()
+
